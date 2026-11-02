@@ -133,7 +133,7 @@ def sample_danmaku(items: list[tuple[float, str]], bucket_s: int, top: int) -> l
             for slot, texts in ranked]
 
 
-@register("astrbot_plugin_bili_whale", "dafeiyu-tools",
+@register("astrbot_plugin_bili_whale", "Wafu",
           "看懂一条B站视频：元信息/字幕/弹幕/热评/抽帧，支持私信回复、评论监听回复、自己刷视频或刷动态主动互动、关注UP主、发动态与点赞投币收藏分享，移植自 dsh-bili-whale", "0.3.31")
 class BiliWhale(Star):
     def __init__(self, context: Context, config: AstrBotConfig = None):

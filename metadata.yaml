@@ -7,7 +7,7 @@ desc: >-
   发动态，并让模型知道自己的B站账号与后台做过的事，移植自 dsh-bili-whale
 version: 0.3.31
 astrbot_version: ">=4.29.0"
-author: dafeiyu-tools
+author: Wafu
 repo: https://github.com/WafuChtholly/astrbot_plugin_bili_whale
 support_platforms:
   - aiocqhttp

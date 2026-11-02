@@ -7,7 +7,7 @@
 主动点赞/投币/收藏/关注/发动态。读路径移植自开源项目
 [dsh-bili-whale](https://github.com/Alterssss/dsh-bili-whale)，全部用 Python 重新实现。
 
-- 作者：`dafeiyu-tools`
+- 作者：`Wafu`
 - 版本：`0.3.31`
 - 支持平台：`aiocqhttp`（QQ，配合 NapCat / Lagrange 等）
 - 许可：MIT
