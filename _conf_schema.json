@@ -1,7 +1,7 @@
 {
   "enabled": {
     "type": "bool",
-    "description": "启用 B站鲸鱼",
+    "description": "启用大肥鱼B站助手",
     "hint": "关闭后所有 df_bili_* 工具都会直接拒绝调用。",
     "default": true
   },

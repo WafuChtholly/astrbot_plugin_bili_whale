@@ -1,4 +1,4 @@
-# 🐋 大肥鱼B站鲸鱼 · astrbot_plugin_bili_whale
+# 🐋 大肥鱼B站助手 · astrbot_plugin_bili_whale
 
 > 让你的 AstrBot 真正「看懂」一条 B 站视频，并且能替你回私信、盯评论区、自己刷 B 站。
 
@@ -8,7 +8,7 @@
 [dsh-bili-whale](https://github.com/Alterssss/dsh-bili-whale)，全部用 Python 重新实现。
 
 - 作者：`dafeiyu-tools`
-- 版本：`0.3.30`
+- 版本：`0.3.31`
 - 支持平台：`aiocqhttp`（QQ，配合 NapCat / Lagrange 等）
 - 许可：MIT
 
@@ -73,7 +73,7 @@ astrbot_plugin_bili_whale/
 
 ### 方式一：AstrBot 插件市场（推荐）
 
-在 AstrBot WebUI → 插件市场搜索「大肥鱼B站鲸鱼」或 `astrbot_plugin_bili_whale`，点击安装。
+在 AstrBot WebUI → 插件市场搜索「大肥鱼B站助手」或 `astrbot_plugin_bili_whale`，点击安装。
 
 ### 方式二：手动安装
 

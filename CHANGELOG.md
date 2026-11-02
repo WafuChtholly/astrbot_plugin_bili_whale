@@ -2,6 +2,10 @@
 
 > 本文件只记录 `astrbot_plugin_bili_whale` 自身的版本演进，最新在前。
 
+## v0.3.31
+
+- 插件显示名由「大肥鱼B站鲸鱼」改为「大肥鱼B站助手」：同步 `metadata.yaml`、README、配置页描述与提示文案。包名 `astrbot_plugin_bili_whale` 与仓库地址保持不变，已安装用户无需重新安装。
+
 ## v0.3.30
 
 - 修「点赞（参数错误（code=4100001））」。`_dynamic_text` 此前把 `basic.comment_id_str`（评论区 oid：视频投稿动态是 aid、专栏动态是 cv 号）当成动态 id，导致动态详情、动态点赞、`t.bilibili.com/…` 链接全部拿错号。现在优先取 `item.id_str`，`oid` 单独计算，解析不出动态 id 的条目直接跳过。

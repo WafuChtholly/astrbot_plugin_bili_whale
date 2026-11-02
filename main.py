@@ -1,4 +1,4 @@
-"""B站鲸鱼：看懂一条视频 —— 元信息、官方字幕、弹幕热区、热评、抽帧画面，可选点赞投币收藏关注、刷动态与发动态。
+"""大肥鱼B站助手：看懂一条视频 —— 元信息、官方字幕、弹幕热区、热评、抽帧画面，可选点赞投币收藏关注、刷动态与发动态。
 
 读路径移植自 dsh-bili-whale，全部用 Python 复刻；画面理解复用 face_convert 的视觉能力。
 """
@@ -134,7 +134,7 @@ def sample_danmaku(items: list[tuple[float, str]], bucket_s: int, top: int) -> l
 
 
 @register("astrbot_plugin_bili_whale", "dafeiyu-tools",
-          "看懂一条B站视频：元信息/字幕/弹幕/热评/抽帧，支持私信回复、评论监听回复、自己刷视频或刷动态主动互动、关注UP主、发动态与点赞投币收藏分享，移植自 dsh-bili-whale", "0.3.30")
+          "看懂一条B站视频：元信息/字幕/弹幕/热评/抽帧，支持私信回复、评论监听回复、自己刷视频或刷动态主动互动、关注UP主、发动态与点赞投币收藏分享，移植自 dsh-bili-whale", "0.3.31")
 class BiliWhale(Star):
     def __init__(self, context: Context, config: AstrBotConfig = None):
         super().__init__(context)
@@ -298,7 +298,7 @@ class BiliWhale(Star):
         """扫码登录 B 站，把 Cookie 写回插件配置（仅主人私聊可用）。"""
         cfg = self.cfg()
         if not cfg["enabled"]:
-            yield event.plain_result("B站鲸鱼已关闭，请先在插件配置里打开。")
+            yield event.plain_result("大肥鱼B站助手已关闭，请先在插件配置里打开。")
             return
         scope = cfg["owner_scope"]
         if not scope:
@@ -370,7 +370,7 @@ class BiliWhale(Star):
         """全线暂停后台私信/评论回复与主动评论（仅主人可用）。"""
         cfg = self.cfg()
         if not cfg["enabled"]:
-            yield event.plain_result("B站鲸鱼已关闭，请先在插件配置里打开。")
+            yield event.plain_result("大肥鱼B站助手已关闭，请先在插件配置里打开。")
             return
         if not self.is_owner(event):
             yield event.plain_result("暂停后台活动仅限主人使用。")
@@ -385,7 +385,7 @@ class BiliWhale(Star):
         """恢复后台活动，并清零私信连续轮数（仅主人可用）。"""
         cfg = self.cfg()
         if not cfg["enabled"]:
-            yield event.plain_result("B站鲸鱼已关闭，请先在插件配置里打开。")
+            yield event.plain_result("大肥鱼B站助手已关闭，请先在插件配置里打开。")
             return
         if not self.is_owner(event):
             yield event.plain_result("恢复后台活动仅限主人使用。")
@@ -422,7 +422,7 @@ class BiliWhale(Star):
     def check_owner(self, event: AstrMessageEvent):
         cfg = self.cfg()
         if not cfg["enabled"]:
-            raise PermissionError("B站鲸鱼已关闭")
+            raise PermissionError("大肥鱼B站助手已关闭")
         if not cfg["owner_scope"]:
             logger.warning("[bili_whale] 未配置 owner_scope，任何会话都可调用")
             return
@@ -1568,7 +1568,7 @@ class BiliWhale(Star):
 
     @filter.llm_tool(name="df_bili_quota")
     async def quota(self, event: AstrMessageEvent, action: str = "status"):
-        """查看B站鲸鱼的读取配额与熔断状态。
+        """查看大肥鱼B站助手的读取配额与熔断状态。
 
         Args:
             action(string): 固定填 status。
