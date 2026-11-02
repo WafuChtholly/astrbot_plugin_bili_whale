@@ -1,0 +1,18 @@
+name: astrbot_plugin_bili_whale
+display_name: 大肥鱼B站鲸鱼
+short_desc: 让模型真正看懂B站视频，还能回私信、盯评论、自己刷B站
+desc: >-
+  看懂一条B站视频：元信息、官方字幕、弹幕热区、热评、抽帧画面，支持私信自动回复、
+  评论区监听/自动回复、自己刷视频或刷动态主动互动、关注UP主、看关注动态与UP主主页、
+  发动态，并让模型知道自己的B站账号与后台做过的事，移植自 dsh-bili-whale
+version: 0.3.30
+author: dafeiyu-tools
+repo: https://github.com/WafuChtholly/astrbot_plugin_bili_whale
+support_platforms:
+  - aiocqhttp
+tags:
+  - bilibili
+  - 视频理解
+  - 字幕
+  - 弹幕
+  - 自动回复

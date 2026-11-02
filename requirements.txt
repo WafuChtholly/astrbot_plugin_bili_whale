@@ -1,0 +1,4 @@
+aiohttp>=3.9.0
+imageio-ffmpeg>=0.5.1
+qrcode>=7.4.2
+pillow>=9.0.0

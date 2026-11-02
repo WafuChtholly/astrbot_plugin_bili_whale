@@ -1,0 +1,350 @@
+{
+  "enabled": {
+    "type": "bool",
+    "description": "启用 B站鲸鱼",
+    "hint": "关闭后所有 df_bili_* 工具都会直接拒绝调用。",
+    "default": true
+  },
+  "owner_scope": {
+    "type": "string",
+    "description": "主人会话 UMO",
+    "hint": "填主人 QQ 号即可（如 123456789），也可填完整 UMO（私聊发 /sid 获取）。该 QQ 私聊或群里调用都算主人；留空则不限制调用者。评论监听要推送消息时必须填完整 UMO。",
+    "default": ""
+  },
+  "owner_name": {
+    "type": "string",
+    "description": "主人昵称（脱敏用）",
+    "hint": "出现在标题、UP主、评论里时替换成「主人」，可留空。",
+    "default": ""
+  },
+  "owner_mid": {
+    "type": "string",
+    "description": "主人 B站 UID（脱敏用 / 私信对象）",
+    "hint": "公开信息里出现该 UID 时替换成「主人」；开启私信监听时，它就是对话的另一方（登录账号必须与它互关）。",
+    "default": ""
+  },
+  "cookie": {
+    "type": "string",
+    "description": "B站 Cookie",
+    "hint": "浏览器登录 B站后复制完整 Cookie，或只填 SESSDATA=...；不填也能读，但更容易被 412 限流。写操作（点赞/投币/收藏/评论）还需要 bili_jct；buvid3/buvid4 可以不填，写操作固定用「登录态 + 空 buvid3」的请求口径（对照 bili-toolbox 实测）。",
+    "secret": true,
+    "default": ""
+  },
+  "request_interval_ms": {
+    "type": "int",
+    "description": "请求最小间隔（毫秒）",
+    "hint": "两次 B站请求之间的最小间隔，越大越不容易被限流。",
+    "default": 600,
+    "slider": {
+      "min": 0,
+      "max": 5000,
+      "step": 50
+    }
+  },
+  "hourly_reads": {
+    "type": "int",
+    "description": "每小时读取上限",
+    "hint": "超过后在本小时内不再发起新的读取请求。",
+    "default": 600,
+    "slider": {
+      "min": 1,
+      "max": 6000,
+      "step": 10
+    }
+  },
+  "daily_reads": {
+    "type": "int",
+    "description": "每日读取上限",
+    "hint": "超过后当天不再发起新的读取请求。",
+    "default": 3000,
+    "slider": {
+      "min": 1,
+      "max": 20000,
+      "step": 100
+    }
+  },
+  "max_video_mb": {
+    "type": "int",
+    "description": "整片下载的兜底上限（MB）",
+    "hint": "抽帧默认由 ffmpeg 直连只拉需要的片段，不落整片；只有直连失败才会退回整片下载，超过该大小就放弃画面、只看文字素材。",
+    "default": 200,
+    "slider": {
+      "min": 1,
+      "max": 200,
+      "step": 1
+    }
+  },
+  "max_frames": {
+    "type": "int",
+    "description": "抽帧张数",
+    "hint": "一次 debrief 最多抽取的画面张数，越大越慢、越费视觉额度。",
+    "default": 9,
+    "slider": {
+      "min": 1,
+      "max": 16,
+      "step": 1
+    }
+  },
+  "subtitles_max_chars": {
+    "type": "int",
+    "description": "字幕最大字数",
+    "hint": "超长字幕会按该字数截断，0 表示不输出字幕正文。",
+    "default": 4000,
+    "slider": {
+      "min": 0,
+      "max": 20000,
+      "step": 100
+    }
+  },
+  "comments_count": {
+    "type": "int",
+    "description": "热评条数",
+    "hint": "debrief 中附带的评论条数，0 表示不取评论。",
+    "default": 8,
+    "slider": {
+      "min": 0,
+      "max": 20,
+      "step": 1
+    }
+  },
+  "danmaku_bucket_s": {
+    "type": "int",
+    "description": "弹幕分桶时长（秒）",
+    "hint": "按该时长切分时间轴，找出弹幕最密集的时段。",
+    "default": 30,
+    "slider": {
+      "min": 5,
+      "max": 300,
+      "step": 5
+    }
+  },
+  "danmaku_top": {
+    "type": "int",
+    "description": "弹幕热区数量",
+    "hint": "只输出最密集的前 N 个时段，0 表示不分析弹幕。",
+    "default": 5,
+    "slider": {
+      "min": 0,
+      "max": 20,
+      "step": 1
+    }
+  },
+  "vision_provider_id": {
+    "type": "string",
+    "description": "画面理解模型",
+    "hint": "从 AstrBot 已接入的对话模型里选一个支持图片输入的；留空则退回 astrbot_plugin_face_convert 的百炼通道。",
+    "_special": "select_provider",
+    "default": ""
+  },
+  "vision_enabled": {
+    "type": "bool",
+    "description": "启用画面理解",
+    "hint": "选择上面任一模型即可理解抽帧画面；留空时需安装 astrbot_plugin_face_convert。",
+    "default": true
+  },
+  "max_vision_calls_per_run": {
+    "type": "int",
+    "description": "单次视觉调用上限",
+    "hint": "一次 debrief 最多发起几批画面理解请求，0 表示不调用视觉模型。",
+    "default": 3,
+    "slider": {
+      "min": 0,
+      "max": 8,
+      "step": 1
+    }
+  },
+  "dm_enabled": {
+    "type": "bool",
+    "description": "启用私信监听与自动回复",
+    "hint": "轮询与 owner_mid 的 B站私信：收到新消息后由所选模型生成回复，再用私信发回去。需要登录 Cookie、bili_jct，且与 owner_mid 互关。",
+    "default": false
+  },
+  "dm_interval_s": {
+    "type": "int",
+    "description": "私信轮询间隔（秒）",
+    "hint": "两次拉取私信的最小间隔，太短会显著增加风控风险。",
+    "default": 60,
+    "slider": {
+      "min": 20,
+      "max": 3600,
+      "step": 10
+    }
+  },
+  "dm_provider_id": {
+    "type": "string",
+    "description": "私信回复模型",
+    "hint": "从 AstrBot 已接入的对话模型里选一个用来生成私信回复；留空则只读取不回复。",
+    "_special": "select_provider",
+    "default": ""
+  },
+  "dm_persona": {
+    "type": "text",
+    "description": "私信回复人设",
+    "hint": "给回复模型的人设提示词，例如语气、身份、禁忌；发私信的不一定是主人，提示词里不要假设对方身份；留空用默认的简短口语风格。",
+    "default": ""
+  },
+  "dm_daily_limit": {
+    "type": "int",
+    "description": "每日私信回复上限",
+    "hint": "每天最多自动回复多少条私信，防止刷屏和被判定为营销号。",
+    "default": 30,
+    "slider": {
+      "min": 1,
+      "max": 200,
+      "step": 1
+    }
+  },
+  "dm_cooldown_s": {
+    "type": "int",
+    "description": "私信回复冷却（秒）",
+    "hint": "两条自动回复之间的最小间隔，0 表示不限制。",
+    "default": 60,
+    "slider": {
+      "min": 0,
+      "max": 3600,
+      "step": 10
+    }
+  },
+  "dm_max_rounds": {
+    "type": "int",
+    "description": "连续自动回复轮数上限",
+    "hint": "和同一个对象连续自动回复超过这个轮数就自动暂停，避免和另一个机器人来回刷到停不下来；恢复用 /bili_resume。",
+    "default": 6,
+    "slider": {
+      "min": 1,
+      "max": 50,
+      "step": 1
+    }
+  },
+  "comment_listen_enabled": {
+    "type": "bool",
+    "description": "启用评论区监听",
+    "hint": "监听「回复我的」和/或「@我的」，有新消息时把「谁、在哪个视频、说了什么、我怎么回的」报告到主人会话。",
+    "default": false
+  },
+  "comment_scope": {
+    "type": "string",
+    "description": "评论区监听范围",
+    "options": ["reply", "at", "both"],
+    "labels": ["回复我的", "@我的", "两者都监听"],
+    "default": "reply"
+  },
+  "comment_interval_s": {
+    "type": "int",
+    "description": "评论区轮询间隔（秒）",
+    "hint": "两次拉取消息中心的最小间隔。",
+    "default": 60,
+    "slider": {
+      "min": 20,
+      "max": 3600,
+      "step": 10
+    }
+  },
+  "comment_reply_provider_id": {
+    "type": "string",
+    "description": "评论自动回复模型",
+    "hint": "从 AstrBot 已接入的对话模型里选一个用来生成评论回复；留空则只在报告里通知，不去B站回复。",
+    "_special": "select_provider",
+    "default": ""
+  },
+  "comment_persona": {
+    "type": "text",
+    "description": "评论回复人设",
+    "hint": "给回复模型的人设提示词，例如语气、身份、禁忌；留空用默认的简短友善风格。",
+    "default": ""
+  },
+  "comment_reply_daily_limit": {
+    "type": "int",
+    "description": "每日评论回复上限",
+    "hint": "每天最多自动回复多少条评论，0 表示不限制；建议保守设置，B站对评论频率较敏感。",
+    "default": 20,
+    "slider": {
+      "min": 0,
+      "max": 200,
+      "step": 1
+    }
+  },
+  "auto_comment_enabled": {
+    "type": "bool",
+    "description": "自己刷内容主动互动",
+    "hint": "开启后插件会按间隔自己拉B站热门/排行榜/关注动态，挑一条没互动过的内容，读取视频信息或动态正文，结合人设、长期记忆和与该UP主的历史往来，由模型自己判断感不感兴趣、要不要点赞/投币/收藏/留言——不感兴趣就什么都不做，也不一定留评论。默认关闭，开启请保守设置间隔和每日上限。",
+    "default": false
+  },
+  "auto_comment_interval_s": {
+    "type": "int",
+    "description": "主动互动间隔（秒）",
+    "hint": "两次主动互动之间的最短间隔，默认 1800 秒（30 分钟）；B站对评论频率较敏感，不建议小于 300 秒。",
+    "default": 1800,
+    "slider": {
+      "min": 300,
+      "max": 86400,
+      "step": 60
+    }
+  },
+  "auto_comment_source": {
+    "type": "string",
+    "description": "主动互动的内容来源",
+    "hint": "热门：B站综合热门列表；排行榜：全站排行榜；动态：自己关注的人发的动态时间线；随机：每次在热门、排行榜、关注动态里随机选一个。视频来源会按状态文件跳过已互动过的视频，动态来源会跳过已互动过的动态。具体做什么由模型判断，可能只点赞、只收藏，也可能什么都不做。",
+    "options": [
+      "popular",
+      "ranking",
+      "dynamic",
+      "random"
+    ],
+    "labels": [
+      "热门",
+      "排行榜",
+      "关注动态",
+      "随机"
+    ],
+    "default": "popular"
+  },
+  "auto_comment_provider_id": {
+    "type": "string",
+    "description": "主动评论模型",
+    "hint": "从 AstrBot 已接入的对话模型里选一个用来写主动评论；留空则不启用主动评论。",
+    "_special": "select_provider",
+    "default": ""
+  },
+  "auto_comment_persona": {
+    "type": "text",
+    "description": "主动评论人设",
+    "hint": "给主动评论模型的人设提示词，例如语气、身份、禁忌；留空用默认的「普通观众自然留言」风格。",
+    "default": ""
+  },
+  "auto_comment_daily_limit": {
+    "type": "int",
+    "description": "每日主动评论上限",
+    "hint": "每天最多主动发表多少条评论，0 表示不限制；只点赞/投币/收藏不消耗这个额度（默认 5 条）。",
+    "default": 5,
+    "slider": {
+      "min": 0,
+      "max": 50,
+      "step": 1
+    }
+  },
+  "publish_enabled": {
+    "type": "bool",
+    "description": "允许模型发动态",
+    "hint": "打开后模型才能调用 df_bili_publish_dynamic 用当前登录账号发纯文本动态。发动态会直接公开，建议只在主人会话使用；需要登录 Cookie 且包含 bili_jct。",
+    "default": false
+  },
+  "memory_recall_enabled": {
+    "type": "bool",
+    "description": "B站回复时召回长期记忆",
+    "hint": "开启后，私信/评论自动回复会通过 LivingMemory 插件按主人会话召回长期记忆，只作语气与背景参考，并禁止向对方复述主人私事；需要 owner_scope 填完整 UMO。会跟随 LivingMemory 自己的作用域设置（全局/按用户共享时自动换算），它那边 recall_engine.top_k 设为 0 则跳过。未安装 LivingMemory 时自动跳过。",
+    "default": true
+  },
+  "chat_window_enabled": {
+    "type": "bool",
+    "description": "为B站对话对象建立独立会话",
+    "hint": "开启后每个私信对象、每个评论对象在 AstrBot 里各有一条独立会话（平台显示 bili_whale），保留最近 8 轮，便于回看和接续；陌生评论较多时会新增较多会话记录。",
+    "default": true
+  },
+  "react_enabled": {
+    "type": "bool",
+    "description": "启用点赞 / 投币 / 收藏 / 分享 / 关注",
+    "hint": "打开后模型才能调用 df_bili_react 给视频点赞、投币（单币/双币）、收藏、分享或一键三连，也才能调用 df_bili_follow 关注/取关 UP 主，主动互动时也才会去点赞/投币/收藏/给动态点赞。需要登录 Cookie 且包含 bili_jct，频繁操作有被风控的风险，建议只在主人会话使用。",
+    "default": false
+  }
+}

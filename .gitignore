@@ -1,0 +1,22 @@
+__pycache__/
+*.py[cod]
+*.log
+.venv/
+venv/
+*.bak
+.serena/
+.idea/
+.vscode/
+.DS_Store
+
+# 运行时状态与凭据（由 StarTools.get_data_dir 写入，不要提交）
+credentials.json
+feed_cache.json
+health_state.json
+pause_state.json
+dm_state.json
+comment_state.json
+auto_comment_state.json
+control.json
+bili_login_qr.png
+data/
