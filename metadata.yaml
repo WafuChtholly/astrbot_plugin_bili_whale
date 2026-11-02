@@ -6,6 +6,7 @@ desc: >-
   评论区监听/自动回复、自己刷视频或刷动态主动互动、关注UP主、看关注动态与UP主主页、
   发动态，并让模型知道自己的B站账号与后台做过的事，移植自 dsh-bili-whale
 version: 0.3.31
+astrbot_version: ">=4.29.0"
 author: dafeiyu-tools
 repo: https://github.com/WafuChtholly/astrbot_plugin_bili_whale
 support_platforms:
