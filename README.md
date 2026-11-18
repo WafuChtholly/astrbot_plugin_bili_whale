@@ -25,6 +25,7 @@
 - **抽帧看画面**：ffmpeg 直连只拉需要的片段（不落整片），最多 16 帧，交给视觉模型
 - **搜索 / UP 主页 / 关注动态 / 收藏夹 / 观看历史 / 稍后再看 / 相关推荐**
 - 内置 **WBI 签名、请求间隔限速、412 熔断、读写配额**，并支持「熔断后自动降级」
+- 读结果带请求级缓存（视频信息/字幕/弹幕/热评/动态等），同一个内容短时间内重复问不会重复消耗配额
 
 ### 写操作（全部默认关闭，需登录 Cookie 且包含 `bili_jct`）
 
@@ -146,6 +147,7 @@ pip install -r data/plugins/astrbot_plugin_bili_whale/requirements.txt
 |---|---|---|
 | `df_bili_react` | `bvid, action="like", coins=1` | `react_enabled` + 登录 Cookie（`like`/`coin`/`fav`/`share`/`triple`） |
 | `df_bili_follow` | `bvid="", mid="", action="follow"` | `react_enabled` + 登录 Cookie（`follow`/`unfollow`） |
+| `df_bili_comment` | `bvid, text` | `react_enabled` + 登录 Cookie（在指定视频评论区留言，1~1000 字） |
 | `df_bili_publish_dynamic` | `text` | `publish_enabled` + 登录 Cookie（1~2000 字纯文本） |
 
 > `with_frames` 参数保留仅为兼容旧调用，实际抽帧由 `vision_enabled` 控制。
@@ -193,7 +195,7 @@ pip install -r data/plugins/astrbot_plugin_bili_whale/requirements.txt
 | 键 | 类型 | 默认 | 范围 | 说明 |
 |---|---|---|---|---|
 | `dm_enabled` | bool | `false` | — | 启用私信监听与自动回复 |
-| `dm_interval_s` | int | `60` | 20~3600 | 轮询间隔 |
+| `dm_interval_s` | int | `300` | 120~3600 | 轮询间隔 |
 | `dm_provider_id` | string | 空 | — | 私信回复模型，留空只读不回 |
 | `dm_persona` | string | 空 | — | 私信回复人设 |
 | `dm_daily_limit` | int | `30` | 1~200 | 每日回复上限 |
@@ -206,7 +208,7 @@ pip install -r data/plugins/astrbot_plugin_bili_whale/requirements.txt
 |---|---|---|---|---|
 | `comment_listen_enabled` | bool | `false` | — | 启用评论区监听 |
 | `comment_scope` | string | `reply` | `reply`/`at`/`both` | 监听「回复我的」/「@我的」/两者 |
-| `comment_interval_s` | int | `60` | 20~3600 | 轮询间隔 |
+| `comment_interval_s` | int | `300` | 120~3600 | 轮询间隔 |
 | `comment_reply_provider_id` | string | 空 | — | 评论回复模型，留空只报告不回复 |
 | `comment_persona` | string | 空 | — | 评论回复人设 |
 | `comment_reply_daily_limit` | int | `20` | 0~200 | 每日评论回复上限，0 不限制 |

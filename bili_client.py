@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import asyncio
+import copy
 import hashlib
 import html
 import json
@@ -32,8 +33,25 @@ MIXIN_TAB = [
     22, 25, 54, 21, 56, 59, 6, 63, 57, 62, 11, 36, 20, 34, 44, 52,
 ]
 BACKOFF = (300, 600, 1200, 1800)
+# 请求级缓存：同一条视频/动态短时间内被反复问到，不必每次都打接口
+CACHE_VIEW_S = 300
+CACHE_SUBS_S = 1800
+CACHE_DANMAKU_S = 600
+CACHE_REPLY_S = 120
+CACHE_FEED_S = 120
+CACHE_NAV_S = 600
+# 只有真正的 B站 API 计入读取配额；字幕、弹幕、图片走的是 CDN，不算同一套限额
+COUNT_HOSTS = ("api.bilibili.com", "api.vc.bilibili.com", "app.bilibili.com")
 _FILTER = re.compile(r"[!'()*]")
 _DANMAKU = re.compile(r'<d p="([^"]*)">(.*?)</d>', re.S)
+
+
+def _countable(url: str) -> bool:
+    try:
+        host = (urlparse(str(url or "")).hostname or "").lower()
+    except ValueError:
+        return True
+    return host in COUNT_HOSTS
 
 
 class BiliError(RuntimeError):
@@ -278,6 +296,7 @@ class BiliClient:
         self._use_fp = False
         self._coin_left = 0      # 账号剩余硬币，coin_balance() 查一次缓存一段时间
         self._coin_at = 0.0
+        self._cache: dict[str, tuple[float, object]] = {}
 
     async def session(self) -> aiohttp.ClientSession:
         if self._session is None or self._session.closed:
@@ -303,7 +322,27 @@ class BiliClient:
             "daily_limit": self.daily,
             "blocked_seconds": max(0, int(self._blocked_until - now)),
             "trips": self._trips,
+            "cache_items": len(self._cache),
         }
+
+    def _cache_get(self, key: str):
+        hit = self._cache.get(key)
+        if not hit:
+            return None
+        expires, value = hit
+        if time.time() >= expires:
+            self._cache.pop(key, None)
+            return None
+        return copy.deepcopy(value)
+
+    def _cache_put(self, key: str, value, ttl: float):
+        if ttl <= 0:
+            return value
+        if len(self._cache) >= 256:
+            now = time.time()
+            self._cache = {k: v for k, v in self._cache.items() if v[0] > now}
+        self._cache[key] = (time.time() + ttl, copy.deepcopy(value))
+        return value
 
     async def _trip(self, reason: str):
         self._trips += 1
@@ -311,23 +350,38 @@ class BiliClient:
         self._blocked_until = time.time() + delay
         logger.warning("[bili_whale] %s，熔断 %s 秒", reason, delay)
 
-    async def _before(self):
+    async def _before(self, count: bool = True):
+        """请求前的统一闸门：熔断检查、配额计数、最小间隔。
+
+        count=False 用于字幕/弹幕这类 CDN 素材请求——它们不占 B站 API 配额，
+        也不该因为配额见底而失败。
+        """
         now = time.time()
         if now < self._blocked_until:
-            raise BiliBlocked(f"B站熔断中，{int(self._blocked_until - now)} 秒后重试")
+            raise BiliBlocked(
+                f"B站风控熔断中，{int(self._blocked_until - now)} 秒后重试"
+                "（这是被 412/-352 拦了，不是读取配额用尽）")
         async with self._lock:
             now = time.time()
-            self._hour = deque(t for t in self._hour if now - t < 3600)
-            self._day = deque(t for t in self._day if now - t < 86400)
-            if len(self._hour) >= self.hourly or len(self._day) >= self.daily:
-                raise BiliError("读取配额已用尽，请稍后再试")
+            if count:
+                self._hour = deque(t for t in self._hour if now - t < 3600)
+                self._day = deque(t for t in self._day if now - t < 86400)
+                if len(self._hour) >= self.hourly:
+                    raise BiliError(
+                        f"读取配额已用尽（本小时 {len(self._hour)}/{self.hourly}），"
+                        "等窗口滑落，或在插件配置里调高 hourly_reads")
+                if len(self._day) >= self.daily:
+                    raise BiliError(
+                        f"读取配额已用尽（今日 {len(self._day)}/{self.daily}），"
+                        "等明天，或在插件配置里调高 daily_reads")
             wait = self._last + self.interval - now
             if wait > 0:
                 await asyncio.sleep(wait)
                 now = time.time()
             self._last = now
-            self._hour.append(now)
-            self._day.append(now)
+            if count:
+                self._hour.append(now)
+                self._day.append(now)
 
     async def _ensure_buvid(self):
         """保证 spi 指纹已就绪（只在需要真指纹时调用）。
@@ -476,7 +530,7 @@ class BiliClient:
         else:
             params = query
         await self._ensure_buvid()
-        await self._before()
+        await self._before(count=_countable(url))
         session = await self.session()
         try:
             async with session.get(url, params=params,
@@ -513,7 +567,7 @@ class BiliClient:
     async def _raw(self, url: str, *, referer: str = "https://www.bilibili.com/") -> bytes:
         if url.startswith("//"):
             url = "https:" + url
-        await self._before()
+        await self._before(count=_countable(url))
         session = await self.session()
         try:
             async with session.get(url, headers=self._headers(referer)) as resp:
@@ -614,11 +668,15 @@ class BiliClient:
             params = {"aid": int(key)}
         else:
             raise BiliError("视频号格式不正确")
+        cache_key = "view:" + key
+        cached = self._cache_get(cache_key)
+        if cached is not None:
+            return cached
         referer = f"https://www.bilibili.com/video/{key}"
         data = await self._json("x/web-interface/view", params, referer=referer)
         if not isinstance(data, dict):
             raise BiliError("视频信息为空，可能已失效")
-        return data
+        return self._cache_put(cache_key, data, CACHE_VIEW_S)
 
     async def resolve_video(self, link: str) -> str:
         """把分享链接（含 b23.tv 短链）还原成 BV号或 aid 字符串。"""
@@ -631,7 +689,7 @@ class BiliClient:
             if "b23.tv" not in text:
                 raise BiliError("分享内容里没有视频号")
             text = "https://" + text
-        await self._before()
+        await self._before(count=False)  # 短链跳转走 b23.tv，不算 API 配额
         try:
             async with (await self.session()).get(
                     text, headers=self._headers(), allow_redirects=True) as resp:
@@ -645,22 +703,35 @@ class BiliClient:
         return found.group(1) if found.groups() else found.group(0)
 
     async def subtitles(self, bvid: str, cid: int) -> list[dict]:
+        cache_key = f"subs:{bvid}:{int(cid)}"
+        cached = self._cache_get(cache_key)
+        if cached is not None:
+            return cached
         referer = f"https://www.bilibili.com/video/{bvid}"
         data = await self._json("x/player/wbi/v2", {"bvid": bvid, "cid": int(cid)},
                                 signed=True, referer=referer)
         subs = ((data or {}).get("subtitle") or {}).get("subtitles") or []
-        return [s for s in subs if s.get("subtitle_url")]
+        return self._cache_put(cache_key, [s for s in subs if s.get("subtitle_url")],
+                               CACHE_SUBS_S)
 
     async def subtitle_body(self, url: str) -> list[dict]:
+        cache_key = "subbody:" + str(url or "")
+        cached = self._cache_get(cache_key)
+        if cached is not None:
+            return cached
         raw = await self._raw(url)
         try:
             payload = json.loads(raw.decode("utf-8", "replace"))
         except json.JSONDecodeError as exc:
             raise BiliError("字幕内容格式异常") from exc
         body = payload.get("body") if isinstance(payload, dict) else None
-        return body or []
+        return self._cache_put(cache_key, body or [], CACHE_SUBS_S)
 
     async def danmaku(self, cid: int) -> list[tuple[float, str]]:
+        cache_key = f"dm:{int(cid)}"
+        cached = self._cache_get(cache_key)
+        if cached is not None:
+            return cached
         raw = await self._raw(f"https://comment.bilibili.com/{int(cid)}.xml")
         text = _decompress(raw)
         items = []
@@ -671,31 +742,48 @@ class BiliClient:
             except (ValueError, IndexError):
                 continue
             items.append((at, html.unescape(match.group(2))))
-        return items
+        return self._cache_put(cache_key, items, CACHE_DANMAKU_S)
 
     async def popular(self, *, limit: int = 20) -> list[dict]:
         """热门视频列表，用于自己「刷视频」时挑内容。"""
+        cache_key = "popular:20"
+        cached = self._cache_get(cache_key)
+        if cached is not None:
+            return cached[:max(1, int(limit))]
         data = await self._json("x/web-interface/popular", {
-            "ps": min(50, max(1, int(limit))), "pn": 1,
+            "ps": 50, "pn": 1,
         }, referer="https://www.bilibili.com/v/popular/all/")
         items = (data or {}).get("list") if isinstance(data, dict) else []
-        return [it for it in (items or []) if isinstance(it, dict)]
+        items = [it for it in (items or []) if isinstance(it, dict)]
+        self._cache_put(cache_key, items, CACHE_FEED_S)
+        return items[:max(1, int(limit))]
 
     async def ranking(self, *, limit: int = 20) -> list[dict]:
         """全站排行榜，作为热门之外的另一个「刷视频」来源。"""
+        cache_key = "ranking:all"
+        cached = self._cache_get(cache_key)
+        if cached is not None:
+            return cached[:max(1, int(limit))]
         data = await self._json("x/web-interface/ranking/v2", {
             "rid": 0, "type": "all",
         }, referer="https://www.bilibili.com/v/popular/rank/all")
         items = (data or {}).get("list") if isinstance(data, dict) else []
-        return [it for it in (items or []) if isinstance(it, dict)][:max(1, int(limit))]
+        items = [it for it in (items or []) if isinstance(it, dict)]
+        self._cache_put(cache_key, items, CACHE_FEED_S)
+        return items[:max(1, int(limit))]
 
     async def replies(self, aid: int, *, sort: int = 2, limit: int = 8,
                       comment_type: int = 1) -> list[dict]:
+        cache_key = f"reply:{int(comment_type)}:{int(aid)}:{int(sort)}:{int(limit)}"
+        cached = self._cache_get(cache_key)
+        if cached is not None:
+            return cached
         data = await self._json("x/v2/reply", {
             "type": int(comment_type), "oid": int(aid), "sort": int(sort),
             "ps": min(20, max(1, int(limit))), "pn": 1,
         }, referer="https://www.bilibili.com/")
-        return ((data or {}).get("replies") or []) if isinstance(data, dict) else []
+        items = ((data or {}).get("replies") or []) if isinstance(data, dict) else []
+        return self._cache_put(cache_key, items, CACHE_REPLY_S)
 
     async def dynamic_feed(self, *, limit: int = 20) -> list[dict]:
         """关注动态时间线，用于自己「刷动态」时挑内容。
@@ -719,6 +807,10 @@ class BiliClient:
             "dm_img_inter": '{"ds":[],"wh":[0,0,0],"of":[0,0,0]}',
         }
         referer = "https://t.bilibili.com/"
+        cache_key = "feed:all"
+        cached = self._cache_get(cache_key)
+        if cached is not None:
+            return cached[:max(1, int(limit))]
         last: BiliError | None = None
         for params, signed in ((full, True), (full, False), (base, True)):
             try:
@@ -731,31 +823,41 @@ class BiliClient:
                 continue
             items = (data or {}).get("items") if isinstance(data, dict) else []
             items = [it for it in (items or []) if isinstance(it, dict)]
-            if items:
-                return items[:max(1, int(limit))]
+            # 空列表也缓存：说明这个号确实没有动态，短时间内重试只会多打请求
+            self._cache_put(cache_key, items, CACHE_FEED_S)
             # 拿到了 code 0：参数与身份是被认可的，这时空就是真的没有动态，
             # 继续换变体只会白白多打几次请求、甚至把自己打进风控
-            return []
+            return items[:max(1, int(limit))]
         if last is not None:
             raise last
         return []
 
     async def following(self, mid: int, *, limit: int = 10) -> list[dict]:
         """我关注的 UP 主列表，按关注时间倒序。"""
+        cache_key = f"following:{int(mid)}:{int(limit)}"
+        cached = self._cache_get(cache_key)
+        if cached is not None:
+            return cached
         data = await self._json("x/relation/followings", {
             "vmid": int(mid), "pn": 1, "ps": min(50, max(1, int(limit))),
             "order": "desc", "order_type": "attention", "type": 0,
         }, signed=True, referer=f"https://space.bilibili.com/{int(mid)}/fans/follow")
         items = (data or {}).get("list") if isinstance(data, dict) else []
-        return [it for it in (items or []) if isinstance(it, dict)][:max(1, int(limit))]
+        items = [it for it in (items or []) if isinstance(it, dict)][:max(1, int(limit))]
+        return self._cache_put(cache_key, items, CACHE_VIEW_S)
 
     async def dynamic_detail(self, dynamic_id) -> dict:
         """读一条动态的完整结构（正文、卡片、统计）。"""
+        cache_key = f"dyn:{dynamic_id}"
+        cached = self._cache_get(cache_key)
+        if cached is not None:
+            return cached
         data = await self._json("x/polymer/web-dynamic/v1/detail",
                                 {"id": str(dynamic_id)}, signed=True,
                                 referer=f"https://t.bilibili.com/{dynamic_id}")
         item = (data or {}).get("item") if isinstance(data, dict) else None
-        return item if isinstance(item, dict) else {}
+        return self._cache_put(cache_key, item if isinstance(item, dict) else {},
+                               CACHE_FEED_S)
 
     async def dynamic_publish(self, text: str) -> dict:
         """发一条纯文本动态；新版 JSON 接口失败时回退旧版表单接口。"""
@@ -785,13 +887,22 @@ class BiliClient:
 
     async def space_card(self, mid: int) -> dict:
         """UP主名片：昵称、签名、粉丝数、投稿数。"""
+        cache_key = f"card:{int(mid)}"
+        cached = self._cache_get(cache_key)
+        if cached is not None:
+            return cached
         data = await self._json("x/web-interface/card", {
             "mid": int(mid),
         }, referer=f"https://space.bilibili.com/{int(mid)}")
-        return data if isinstance(data, dict) else {}
+        return self._cache_put(cache_key, data if isinstance(data, dict) else {},
+                               CACHE_VIEW_S)
 
     async def space_videos(self, mid: int, *, limit: int = 10) -> list[dict]:
         """UP主主页的最近投稿，按发布时间倒序。"""
+        cache_key = f"svideos:{int(mid)}:{int(limit)}"
+        cached = self._cache_get(cache_key)
+        if cached is not None:
+            return cached
         data = await self._json("x/space/wbi/arc/search", {
             "mid": int(mid), "ps": min(30, max(1, int(limit))), "pn": 1,
             "order": "pubdate", "platform": "web", "web_location": 1550101,
@@ -802,10 +913,15 @@ class BiliClient:
             "dm_img_inter": '{"ds":[],"wh":[0,0,0],"of":[0,0,0]}',
         }, signed=True, referer=f"https://space.bilibili.com/{int(mid)}/video")
         items = ((data or {}).get("list") or {}).get("vlist") if isinstance(data, dict) else []
-        return [it for it in (items or []) if isinstance(it, dict)][:max(1, int(limit))]
+        items = [it for it in (items or []) if isinstance(it, dict)][:max(1, int(limit))]
+        return self._cache_put(cache_key, items, CACHE_FEED_S)
 
     async def space_dynamics(self, mid: int, *, limit: int = 8) -> list[dict]:
         """UP主主页的动态列表（转发、图文、视频投稿都算）。"""
+        cache_key = f"sdyn:{int(mid)}:{int(limit)}"
+        cached = self._cache_get(cache_key)
+        if cached is not None:
+            return cached
         params = {
             "host_mid": int(mid), "offset": "", "timezone_offset": -480,
             "features": "itemOpusStyle", "platform": "web",
@@ -820,7 +936,8 @@ class BiliClient:
             data = await self._json("x/polymer/web-dynamic/v1/feed/space", params,
                                     signed=True, referer=referer)
         items = (data or {}).get("items") if isinstance(data, dict) else []
-        return [it for it in (items or []) if isinstance(it, dict)][:max(1, int(limit))]
+        items = [it for it in (items or []) if isinstance(it, dict)][:max(1, int(limit))]
+        return self._cache_put(cache_key, items, CACHE_FEED_S)
 
     async def search(self, keyword: str, *, limit: int = 8) -> list[dict]:
         data = await self._json("x/web-interface/wbi/search/type", {
@@ -857,6 +974,10 @@ class BiliClient:
 
         播放流接口的风控比普通接口严，且失败不该熔断全局读取，故关闭熔断。
         """
+        cache_key = f"play:{bvid}:{int(cid)}:{int(qn)}"
+        cached = self._cache_get(cache_key)
+        if cached is not None:
+            return cached
         referer = f"https://www.bilibili.com/video/{bvid}"
         base = {"bvid": bvid, "cid": int(cid), "qn": int(qn), "fourk": 0}
         last = "没有可用地址"
@@ -873,16 +994,21 @@ class BiliClient:
                 last = str(exc)
                 continue
             if urls:
-                return urls
+                return self._cache_put(cache_key, urls, CACHE_FEED_S)
             last = "返回里没有视频流"
         raise BiliError(f"没有拿到可下载的视频流（{last}）")
 
     async def videoshot(self, bvid: str, cid: int) -> dict:
         """取B站官方的进度条缩略图：长视频不下载整片也能抽几帧看画面。"""
+        cache_key = f"shot:{bvid}:{int(cid)}"
+        cached = self._cache_get(cache_key)
+        if cached is not None:
+            return cached
         data = await self._json("x/player/videoshot", {
             "bvid": str(bvid), "cid": int(cid), "index": 1,
         }, referer=f"https://www.bilibili.com/video/{bvid}")
-        return data if isinstance(data, dict) else {}
+        return self._cache_put(cache_key, data if isinstance(data, dict) else {},
+                               CACHE_VIEW_S)
 
     async def download(self, urls: list[str], path: str, *, limit_mb: float = 60,
                        referer: str = "https://www.bilibili.com/") -> int:
@@ -949,7 +1075,7 @@ class BiliClient:
         （新版发动态接口只认 JSON）。默认按 bili-toolbox 的口径带登录 Cookie
         （含 DedeUserID）+ 空的 buvid3/buvid4。
         """
-        await self._before()
+        await self._before(count=_countable(url))
         await self._ensure_mid()
         session = await self.session()
         headers = self._headers(referer, bare=not self._use_fp)
@@ -1004,9 +1130,12 @@ class BiliClient:
     async def nav(self) -> dict:
         """取当前登录身份：mid / uname / isLogin / wbi_img。"""
         await self._ensure_buvid()
+        cached = self._cache_get("nav")
+        if cached is not None:
+            return cached
         data = await self._json("x/web-interface/nav", {},
                                 referer="https://www.bilibili.com/", allow=(-101,))
-        return data if isinstance(data, dict) else {}
+        return self._cache_put("nav", data if isinstance(data, dict) else {}, CACHE_NAV_S)
 
     async def relation(self, fid: int) -> int:
         """查询与某用户的关注关系：6 表示互关（只有互关能发私信）。"""
@@ -1091,20 +1220,43 @@ class BiliClient:
             referer=referer or "https://www.bilibili.com/")
 
     async def dynamic_thumb(self, dyn_id, up: int = 1) -> dict:
-        """给一条动态点赞（up=1）或取消点赞（up=2）。"""
+        """给一条动态点赞（up=1）或取消点赞（up=2）。
+
+        先走老接口 dynamic_like/thumb（只认 dynamic_id），它对动态号最宽容；
+        新版 x/dynamic/feed/dyn/thumb 对参数挑剔，缺字段会回 4100001（参数错误），
+        留作兜底。两条路都失败才报错。
+        """
         if not self.credentials.bili_jct:
             raise BiliError("缺少 bili_jct，无法给动态点赞")
         dyn = str(dyn_id).strip()
         if not dyn.isdigit():
             raise BiliError("动态号不合法，无法给动态点赞")
+        referer = f"https://t.bilibili.com/{dyn}"
+        errors = []
+        try:
+            return await self._post_form(
+                "https://api.vc.bilibili.com/dynamic_like/v1/dynamic_like/thumb",
+                {"dynamic_id": dyn, "up": int(up),
+                 "csrf": self.credentials.bili_jct},
+                referer=referer)
+        except BiliBlocked:
+            raise
+        except BiliError as exc:
+            errors.append(str(exc))
         form = {
             "dyn_id": dyn,
+            "dyn_id_str": dyn,
             "up": int(up),
             "csrf": self.credentials.bili_jct,
         }
-        return await self._post_form(
-            f"{API}/x/dynamic/feed/dyn/thumb", form,
-            referer=f"https://t.bilibili.com/{dyn}")
+        try:
+            return await self._post_form(
+                f"{API}/x/dynamic/feed/dyn/thumb", form, referer=referer)
+        except BiliBlocked:
+            raise
+        except BiliError as exc:
+            errors.append(str(exc))
+        raise BiliError("；".join(errors))
 
     async def archive_like(self, aid: int) -> dict:
         """给视频点赞（aid）。"""

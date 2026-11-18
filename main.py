@@ -43,7 +43,7 @@ DEFAULTS = {
     "vision_provider_id": "",
     "max_vision_calls_per_run": 3,
     "dm_enabled": False,
-    "dm_interval_s": 60,
+    "dm_interval_s": 300,
     "dm_provider_id": "",
     "dm_persona": "",
     "dm_daily_limit": 30,
@@ -51,7 +51,7 @@ DEFAULTS = {
     "dm_max_rounds": 6,
     "comment_listen_enabled": False,
     "comment_scope": "reply",
-    "comment_interval_s": 60,
+    "comment_interval_s": 300,
     "comment_reply_provider_id": "",
     "comment_persona": "",
     "comment_reply_daily_limit": 20,
@@ -134,7 +134,7 @@ def sample_danmaku(items: list[tuple[float, str]], bucket_s: int, top: int) -> l
 
 
 @register("astrbot_plugin_bili_whale", "Wafu",
-          "看懂一条B站视频：元信息/字幕/弹幕/热评/抽帧，支持私信回复、评论监听回复、自己刷视频或刷动态主动互动、关注UP主、发动态与点赞投币收藏分享，移植自 dsh-bili-whale", "0.3.31")
+          "看懂一条B站视频：元信息/字幕/弹幕/热评/抽帧，支持私信回复、评论监听回复、自己刷视频或刷动态主动互动、关注UP主、发动态与点赞投币收藏分享，移植自 dsh-bili-whale", "0.3.32")
 class BiliWhale(Star):
     def __init__(self, context: Context, config: AstrBotConfig = None):
         super().__init__(context)
@@ -146,6 +146,7 @@ class BiliWhale(Star):
         self._warn_at: dict[str, float] = {}
         self._dm_fail = 0
         self._feed_fail = 0
+        self._feed_dead_until = 0.0
         self._auto_fail = 0
         self._mutual_at = 0.0
         self._mutual_ok = False
@@ -163,9 +164,9 @@ class BiliWhale(Star):
             ("max_frames", 1, 16), ("subtitles_max_chars", 0, 20000),
             ("comments_count", 0, 20), ("danmaku_bucket_s", 5, 300),
             ("danmaku_top", 0, 20), ("max_vision_calls_per_run", 0, 8),
-            ("dm_interval_s", 20, 3600), ("dm_daily_limit", 1, 200),
+            ("dm_interval_s", 120, 3600), ("dm_daily_limit", 1, 200),
             ("dm_cooldown_s", 0, 3600), ("dm_max_rounds", 1, 50),
-            ("comment_interval_s", 20, 3600),
+            ("comment_interval_s", 120, 3600),
             ("comment_reply_daily_limit", 0, 200),
             ("auto_comment_interval_s", 60, 86400),
             ("auto_comment_daily_limit", 0, 50),
@@ -326,14 +327,14 @@ class BiliWhale(Star):
             return
         yield event.chain_result([
             Image.fromFileSystem(str(png)),
-            Plain("\n用B站手机客户端扫码并在手机上确认登录，3 分钟内有效。"),
+            Plain("\n用B站手机客户端扫码并在手机上确认登录，2 分钟内有效。"),
         ])
 
-        deadline = time.time() + 180
+        deadline = time.time() + 120
         scanned = False
         try:
             while time.time() < deadline:
-                await asyncio.sleep(2)
+                await asyncio.sleep(3)
                 try:
                     state = await client.qr_poll(qr_key)
                 except BiliError as exc:
@@ -363,7 +364,7 @@ class BiliWhale(Star):
                 png.unlink()
             except OSError:
                 pass
-        yield event.plain_result("等待扫码超时（3 分钟），请重新发送 /bili_login。")
+        yield event.plain_result("等待扫码超时（2 分钟），请重新发送 /bili_login。")
 
     @filter.command("bili_stop", alias={"bili暂停"})
     async def bili_stop(self, event: AstrMessageEvent):
@@ -948,6 +949,50 @@ class BiliWhale(Star):
         head = label + ("\n（" + fallback + "）" if fallback else "")
         return head + "\n" + "\n".join("- " + line for line in results)
 
+    @filter.llm_tool(name="df_bili_comment")
+    async def comment(self, event: AstrMessageEvent, bvid: str, text: str):
+        """在指定B站视频的评论区发一条评论。
+
+        主人明确要求「去某个BV号下面评论/留言」时用这个工具；
+        只是想看别人说了什么，用 df_bili_comments 而不是它。
+
+        Args:
+            bvid(string): 视频 BV号（如 BV1xx411c7mD）或 av号（av12345 或纯数字）。
+            text(string): 评论正文，1~1000 字；超过会被截断。
+        """
+        self.check_owner(event)
+        cfg = self.cfg()
+        if not cfg["react_enabled"]:
+            raise ValueError("B站写操作未开启，请主人先在插件配置里打开 react_enabled")
+        code = str(bvid or "").strip()
+        if code.lower().startswith("av"):
+            code = code[2:]
+        if not (BVID.fullmatch(code) or code.isdigit()):
+            raise ValueError("需要 BV号或 av号")
+        body = str(text or "").strip()
+        if not body:
+            raise ValueError("评论内容不能为空")
+        body = body[:1000]
+
+        client = self.client()
+        view = await client.view(code)
+        aid = to_int(view.get("aid"))
+        if not aid:
+            raise ValueError("没取到该视频的 aid")
+        real_bvid = str(view.get("bvid") or "")
+        title = self.mask(cfg, view.get("title"))
+        label = f"《{title}》" if title else f"（{real_bvid or code}）"
+        uri = f"https://www.bilibili.com/video/{real_bvid or code}"
+        try:
+            data = await client.reply_add(aid, body, referer=uri, comment_type=1)
+        except BiliError as exc:
+            if self._comment_blocked(exc):
+                return label + f"：这个视频的评论区发不了（{exc}）"
+            return label + f"：评论发表失败 —— {exc}"
+        rpid = to_int((data or {}).get("rpid_str") or (data or {}).get("rpid"))
+        tail = f"（评论号 {rpid}）" if rpid else ""
+        return f"{label}：评论已发出{tail}\n{uri}"
+
     @filter.llm_tool(name="df_bili_follow")
     async def follow(self, event: AstrMessageEvent, bvid: str = "", mid: str = "",
                      action: str = "follow"):
@@ -1487,14 +1532,28 @@ class BiliWhale(Star):
             picks = _picks(raw)
             if picks:
                 self._save_feed_cache(picks)
+                self._feed_dead_until = 0.0
                 return picks[:limit], ""
             if raw:
                 note = f"时间线接口通了，但返回的 {len(raw)} 条都解析不出内容"
             else:
+                # 接口明确返回空：说明关注的人最近真没发，翻主页只会白花配额
                 note = "时间线接口返回空（关注的人最近可能没发动态）"
+                cached, ago = self._load_feed_cache()
+                if cached:
+                    return cached[:limit], f"{note}，下面是{ago}拉到的一批"
+                return [], note
         except BiliError as exc:
             self._warn("feed_line", f"关注动态时间线读取失败：{exc}")
             note = f"时间线接口失败：{exc}"
+
+        # 降级链本身很贵（nav + 关注列表 + 逐个数主页动态），刚整条走过一遍失败的话，
+        # 半小时内直接给缓存，别再拿配额去试
+        if time.time() < self._feed_dead_until:
+            cached, ago = self._load_feed_cache()
+            if cached:
+                return cached[:limit], f"动态接口这会儿不太通（{note}），下面是{ago}拉到的一批"
+            return [], note
 
         # 兜底一：翻最近关注几位 UP 主的个人主页动态，按时间合并成一条时间线
         merged: list[dict] = []
@@ -1502,7 +1561,7 @@ class BiliWhale(Star):
         try:
             mid = to_int((await client.nav()).get("mid"))
             if mid:
-                follows = await client.following(mid, limit=6)
+                follows = await client.following(mid, limit=3)
             else:
                 note += "；也没读到登录 UID"
         except BiliError as exc:
@@ -1519,7 +1578,9 @@ class BiliWhale(Star):
         if merged:
             merged.sort(key=lambda p: to_int(p.get("pub_ts")), reverse=True)
             self._save_feed_cache(merged)
+            self._feed_dead_until = 0.0
             return merged[:limit], f"时间线接口没通（{note}），已改成翻最近关注的几位 UP 主主页"
+        self._feed_dead_until = time.time() + 1800
 
         # 兜底二：B站整个连不上时，交出上次成功拉到的一批，至少能接着聊
         cached, ago = self._load_feed_cache()
@@ -1576,10 +1637,16 @@ class BiliWhale(Star):
         self.check_owner(event)
         state = self.client().quota()
         text = (
-            f"本小时 {state['hourly_used']}/{state['hourly_limit']}，"
-            f"今日 {state['daily_used']}/{state['daily_limit']}，"
-            f"熔断剩余 {state['blocked_seconds']} 秒，累计熔断 {state['trips']} 次。"
+            f"读取配额：本小时 {state['hourly_used']}/{state['hourly_limit']}，"
+            f"今日 {state['daily_used']}/{state['daily_limit']}；"
+            f"缓存里存着 {state['cache_items']} 条结果。"
         )
+        if state["blocked_seconds"]:
+            text += (f"\n正在风控熔断，还剩 {state['blocked_seconds']} 秒"
+                     f"（这是被 412/-352 拦了，不是读取配额用尽）"
+                     f"，累计熔断 {state['trips']} 次。")
+        else:
+            text += f"\n没有在熔断中（累计被风控拦过 {state['trips']} 次）。"
         if not self.credentials().ok:
             text += "\n未配置 B站凭据：可能拿不到高清视频或 AI 字幕。"
         return text

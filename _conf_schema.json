@@ -162,10 +162,10 @@
   "dm_interval_s": {
     "type": "int",
     "description": "私信轮询间隔（秒）",
-    "hint": "两次拉取私信的最小间隔，太短会显著增加风控风险。",
-    "default": 60,
+    "hint": "两次拉取私信的最小间隔，默认 300 秒；太短会显著增加风控风险与读取配额消耗，不建议小于 120 秒。",
+    "default": 300,
     "slider": {
-      "min": 20,
+      "min": 120,
       "max": 3600,
       "step": 10
     }
@@ -232,10 +232,10 @@
   "comment_interval_s": {
     "type": "int",
     "description": "评论区轮询间隔（秒）",
-    "hint": "两次拉取消息中心的最小间隔。",
-    "default": 60,
+    "hint": "两次拉取消息中心的最小间隔，默认 300 秒；不建议小于 120 秒。",
+    "default": 300,
     "slider": {
-      "min": 20,
+      "min": 120,
       "max": 3600,
       "step": 10
     }
@@ -343,8 +343,8 @@
   },
   "react_enabled": {
     "type": "bool",
-    "description": "启用点赞 / 投币 / 收藏 / 分享 / 关注",
-    "hint": "打开后模型才能调用 df_bili_react 给视频点赞、投币（单币/双币）、收藏、分享或一键三连，也才能调用 df_bili_follow 关注/取关 UP 主，主动互动时也才会去点赞/投币/收藏/给动态点赞。需要登录 Cookie 且包含 bili_jct，频繁操作有被风控的风险，建议只在主人会话使用。",
+    "description": "启用点赞 / 投币 / 收藏 / 分享 / 关注 / 评论",
+    "hint": "打开后模型才能调用 df_bili_react 给视频点赞、投币（单币/双币）、收藏、分享或一键三连，调用 df_bili_follow 关注/取关 UP 主，调用 df_bili_comment 在指定视频下留言，主动互动时也才会去点赞/投币/收藏/给动态点赞。需要登录 Cookie 且包含 bili_jct，频繁操作有被风控的风险，建议只在主人会话使用。",
     "default": false
   }
 }
